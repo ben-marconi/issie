@@ -340,6 +340,24 @@ module HLPTick3 =
 
 
 
+    // Tick 3 Question 7
+    // Generate Data
+    let component1Pos = middleOfSheet
+    let gridStep = {X=10.0; Y=10.0}
+    let gridSize = 30
+
+    // Generate positions around component1
+    let xPositions = randomInt (int component1Pos.X - gridSize * int gridStep.X) (int gridStep.X) (int component1Pos.X + gridSize * int gridStep.X)
+    let yPositions = randomInt (int component1Pos.Y - gridSize * int gridStep.Y) (int gridStep.Y) (int component1Pos.Y + gridSize * int gridStep.Y)
+
+    let gridPositions = product (fun x y -> {X = float x; Y = float y}) xPositions yPositions
+    let overlap (pos: XYPos) =
+        (abs (component1Pos.X - pos.Y) > 30.0) || (abs (component1Pos.Y - pos.Y) > 30.0)
+
+
+    let validPositions = filter overlap gridPositions
+
+
 //------------------------------------------------------------------------------------------------//
 //-------------------------Example assertions used to test sheets---------------------------------//
 //------------------------------------------------------------------------------------------------//
@@ -446,6 +464,16 @@ module HLPTick3 =
                 dispatch
             |> recordPositionInTest testNum dispatch
 
+        let test5 testNum firstSample dispatch =
+            runTestOnSheets
+                "Randomly positioned DFF: fail on wire intersect symbol"
+                firstSample
+                validPositions
+                makeTest1Circuit
+                Asserts.failOnWireIntersectsSymbol
+                dispatch
+            |> recordPositionInTest testNum dispatch
+
         /// List of tests available which can be run ftom Issie File Menu.
         /// The first 9 tests can also be run via Ctrl-n accelerator keys as shown on menu
         let testsToRunFromSheetMenu : (string * (int -> int -> Dispatch<Msg> -> Unit)) list =
@@ -456,7 +484,7 @@ module HLPTick3 =
                 "Test2", test2 // example
                 "Test3", test3 // example
                 "Test4", test4 
-                "Test5", fun _ _ _ -> printf "Test5" // dummy test - delete line or replace by real test as needed
+                "Test5", test5
                 "Test6", fun _ _ _ -> printf "Test6"
                 "Test7", fun _ _ _ -> printf "Test7"
                 "Test8", fun _ _ _ -> printf "Test8"

@@ -66,7 +66,7 @@
 
 //------------------------Combinators to transform and combine random sequences-----------------//
 
-    /// Map the sequence elemntwise
+    /// Map the sequence elementwise
     let map (f: 'a -> 'b) (g1: Gen<'a>) : Gen<'b> =
         {Data = (fun i -> g1.Data i |> f); Size = g1.Size}
 
