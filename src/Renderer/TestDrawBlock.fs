@@ -233,15 +233,61 @@ module HLPTick3 =
                     }
                 placeSymbol symLabel (Custom ccType) position model
             
-        
+        let findSymbolIdByLabel (model: SheetT.Model) (targetLabel: string) : Option<ComponentId> =
+            model.Wire.Symbol.Symbols
+            |> Map.toSeq 
+            |> Seq.tryFind (fun (_, sym) -> sym.Component.Label.ToUpper() = targetLabel.ToUpper()) 
+            |> Option.map fst 
 
         // Rotate a symbol
         let rotateSymbol (symLabel: string) (rotate: Rotation) (model: SheetT.Model) : (SheetT.Model) =
-            failwithf "Not Implemented"
+            match findSymbolIdByLabel model symLabel with
+            | Some(id) ->
+                let sym = model.Wire.Symbol.Symbols[id]
+                let newSTransform = { sym.STransform with Rotation = rotate }
+                let newPortMaps = SymbolResizeHelpers.rotatePortInfo rotate sym.PortMaps
+                let updatedSym = { sym with STransform = newSTransform; PortMaps = newPortMaps }
+                let updatedSymbols = Map.add id updatedSym model.Wire.Symbol.Symbols
+                { model with Wire = { model.Wire with Symbol = { model.Wire.Symbol with Symbols = updatedSymbols } } }
+            | None -> model 
+
+            
+
 
         // Flip a symbol
         let flipSymbol (symLabel: string) (flip: SymbolT.FlipType) (model: SheetT.Model) : (SheetT.Model) =
-            failwithf "Not Implemented"
+            match findSymbolIdByLabel model symLabel with
+            | Some(id) ->
+                let sym = model.Wire.Symbol.Symbols[id]
+                match flip with
+                | SymbolT.FlipHorizontal ->
+                    let newSym = SymbolResizeHelpers.flipSymbol SymbolT.FlipHorizontal sym
+                    let updatedSymbols = Map.add id newSym model.Wire.Symbol.Symbols
+                    { model with Wire = { model.Wire with Symbol = { model.Wire.Symbol with Symbols = updatedSymbols } } }
+                | SymbolT.FlipVertical ->
+                    let currentRotation = sym.STransform.Rotation
+                    let oppositeRotation = Symbol.invertRotation currentRotation
+                    rotateSymbol symLabel oppositeRotation model
+            | None -> model
+
+        /// Generate a random rotation
+        let randomRotation () =
+            let rnd = System.Random()
+            match rnd.Next(0, 4) with
+            | 0 -> Degree0
+            | 1 -> Degree90
+            | 2 -> Degree180
+            | 3 -> Degree270
+            | _ -> Degree0
+
+        /// Generate a random rotation
+        let randomFlip () : SymbolT.FlipType =
+            let rnd = System.Random()
+            match rnd.Next(0, 2) with
+            | 0 -> SymbolT.FlipHorizontal
+            | 1 -> SymbolT.FlipVertical
+            | _ -> SymbolT.FlipHorizontal
+
 
         /// Add a (newly routed) wire, source specifies the Output port, target the Input port.
         /// Return an error if either of the two ports specified is invalid, or if the wire duplicates and existing one.
@@ -338,24 +384,37 @@ module HLPTick3 =
         |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0) )
         |> getOkOrFail
 
-
+    /// make circuit with random flips and rotates
+    let makeTest6Circuit (andPos:XYPos) =
+        initSheetModel
+        |> placeSymbol "G1" (GateN(And,2)) andPos
+        |> getOkOrFail
+        |> rotateSymbol "G1" (randomRotation ())
+        // |> flipSymbol "G1" (randomFlip ())
+        |> Ok
+        |> Result.bind (placeSymbol "FF1" DFF middleOfSheet)
+        |> Result.bind (placeWire (portOf "G1" 0) (portOf "FF1" 0))
+        |> Result.bind (placeWire (portOf "FF1" 0) (portOf "G1" 0) )
+        |> getOkOrFail
 
     // Tick 3 Question 7
-    // Generate Data
-    let component1Pos = middleOfSheet
-    let gridStep = {X=10.0; Y=10.0}
-    let gridSize = 30
 
-    // Generate positions around component1
-    let xPositions = randomInt (int component1Pos.X - gridSize * int gridStep.X) (int gridStep.X) (int component1Pos.X + gridSize * int gridStep.X)
-    let yPositions = randomInt (int component1Pos.Y - gridSize * int gridStep.Y) (int gridStep.Y) (int component1Pos.Y + gridSize * int gridStep.Y)
-
-    let gridPositions = product (fun x y -> {X = float x; Y = float y}) xPositions yPositions
+    // Filter overlapping boxes
     let overlap (pos: XYPos) =
-        (abs (component1Pos.X - pos.Y) > 30.0) || (abs (component1Pos.Y - pos.Y) > 30.0)
-
-
-    let validPositions = filter overlap gridPositions
+        let (_, _, height1, width1) = Symbol.getComponentProperties DFF "FF1"
+        let (_, _, height2, width2) = Symbol.getComponentProperties (GateN(And,2)) "G1"
+        let box1 = {TopLeft = {X = middleOfSheet.X - width1 / 2.0; Y = middleOfSheet.Y + height1 / 2.0}; W= width1; H = height1; }
+        let box2 = {TopLeft = {X = pos.X - width2 / 2.0; Y = pos.Y + height2 / 2.0}; W= width2; H = height2; }
+        not (boxesIntersect box1 box2)
+    
+    // Generate Data
+    let grid = 
+        let gridStep = 10.0
+        let gridSize = 15
+        let Positions = fromList [-gridSize..gridSize]
+        product (fun x y -> {X = float x * gridStep; Y = float y * gridStep}) Positions Positions
+        |> filter overlap
+        |> map (fun pos -> middleOfSheet + pos)
 
 
 //------------------------------------------------------------------------------------------------//
@@ -468,9 +527,19 @@ module HLPTick3 =
             runTestOnSheets
                 "Randomly positioned DFF: fail on wire intersect symbol"
                 firstSample
-                validPositions
+                grid
                 makeTest1Circuit
                 Asserts.failOnWireIntersectsSymbol
+                dispatch
+            |> recordPositionInTest testNum dispatch
+
+        let test6 testNum firstSample dispatch =
+            runTestOnSheets
+                "Randomly positioned DFF plus Flip/rotation: fail on wire intersect symbol"
+                firstSample
+                grid
+                makeTest6Circuit
+                Asserts.failOnAllTests
                 dispatch
             |> recordPositionInTest testNum dispatch
 
@@ -485,7 +554,7 @@ module HLPTick3 =
                 "Test3", test3 // example
                 "Test4", test4 
                 "Test5", test5
-                "Test6", fun _ _ _ -> printf "Test6"
+                "Test6", test6
                 "Test7", fun _ _ _ -> printf "Test7"
                 "Test8", fun _ _ _ -> printf "Test8"
                 "Next Test Error", fun _ _ _ -> printf "Next Error:" // Go to the nexterror in a test
